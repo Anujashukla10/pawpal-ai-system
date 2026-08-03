@@ -1,16 +1,18 @@
 """
-PawPal+ — main.py (v6)
+PawPal+ — main.py (v7)
 Professional CLI formatting:
   - tabulate: structured tables for schedule, tasks, and progress
   - Color-coded ANSI priority badges (high=red, medium=yellow, low=green)
   - Emoji task-type icons (🚶 walk, 🍽 feed, 💊 meds, 🛁 groom, 🎾 enrichment)
   - Conflict warning banners with divider lines
+  - AI Rescheduling Agent (Groq) for resolving same-pet conflicts
 """
 
 import copy
 import datetime
 from tabulate import tabulate
 from pawpal_system import Owner, Pet, Task, Scheduler
+from ai_agent import ReschedulingAgent, AgentError
 
 
 # ─────────────────────────────────────────────
@@ -138,6 +140,24 @@ def render_progress(sched: Scheduler) -> None:
             print(f"    ○  {task_icon(t.title)} {t.title}  {DIM}@ {t.scheduled_time}{RESET}")
 
 
+def run_agent_section(sched: Scheduler, pet_name: str) -> ReschedulingAgent:
+    """Run the AI rescheduling agent on a scheduler and print what happened."""
+    print_section(f"🤖 AI Rescheduling Agent — {pet_name}")
+    agent = ReschedulingAgent(sched)
+    try:
+        agent.resolve()
+        if agent.trace and agent.trace[0].get("note"):
+            print(f"  {GREEN}✅ {agent.trace[0]['note']}{RESET}")
+        else:
+            print(f"  {GREEN}✅ Agent resolved conflicts. Updated plan:{RESET}")
+            for t in sorted(sched.plan, key=lambda t: t.scheduled_time):
+                print(f"    {t.scheduled_time} — {t.title}")
+    except AgentError as e:
+        print(f"  {YELLOW}⚠️  {e}{RESET}")
+        print(f"  {DIM}Falling back to original plan.{RESET}")
+    return agent
+
+
 # ─────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────
@@ -173,8 +193,12 @@ def main():
     dog_sched.add_task(Task("Bath",           40, "low",    recurrence="weekly"))
     dog_sched.build_plan()
 
+    # Force a conflict on purpose so the AI agent demo has something to fix
+    dog_sched.plan[0].scheduled_time = dog_sched.plan[1].scheduled_time
+
     print_section(f"🐕 Biscuit ({dog.breed})")
     render_schedule_table(dog_sched, dog.name)
+    run_agent_section(dog_sched, dog.name)
     render_progress(dog_sched)
 
     # ── Mochi ─────────────────────────────────────────────────────────
