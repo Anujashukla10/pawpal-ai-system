@@ -11,6 +11,7 @@ All Phase 3 features wired to the UI:
 
 import streamlit as st
 from pawpal_system import Owner, Pet, Task, Scheduler
+from ai_agent import ReschedulingAgent, AgentError
 
 # ─────────────────────────────────────────────
 # Page config
@@ -197,7 +198,7 @@ else:
 
             st.subheader(f"🐾 {pet.name} ({pet.species})")
 
-            # ── Same-pet conflict warning ─────────────────────────────
+            # ── Same-pet conflict warning + AI agent ──────────────────
             same_warnings = [w for w in sched.check_conflicts() if "CONFLICT" in w]
             if same_warnings:
                 st.warning(
@@ -207,6 +208,22 @@ else:
                 with st.expander(f"Show {pet.name}'s conflicts"):
                     for w in same_warnings:
                         st.markdown(f"- {w}")
+
+                if st.button(f"🤖 Ask AI to resolve {pet.name}'s conflicts", key=f"agent_{pet.name}"):
+                    agent = ReschedulingAgent(sched)
+                    try:
+                        with st.spinner("Agent is reasoning about the schedule..."):
+                            agent.resolve()
+                        st.success(f"✅ AI agent resolved the conflict(s) for {pet.name}.")
+                        st.session_state[f"agent_trace_{pet.name}"] = agent.trace
+                    except AgentError as e:
+                        st.error(f"⚠️ Agent couldn't resolve this: {e}")
+
+                trace = st.session_state.get(f"agent_trace_{pet.name}")
+                if trace:
+                    with st.expander("🧠 Agent reasoning trace"):
+                        for entry in trace:
+                            st.json(entry)
 
             # ── Schedule table — sorted chronologically ───────────────
             sorted_plan = sched.sort_by_time()
