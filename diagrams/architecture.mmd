@@ -1,0 +1,11 @@
+flowchart TD
+    A[Owner + Pet + Task data] --> B[Scheduler.build_plan]
+    B --> C{Conflicts or skipped tasks?}
+    C -- No --> H[Display validated plan to user]
+    C -- Yes --> D[Agent PLAN: LLM proposes JSON fixes]
+    D --> E[Agent ACT: apply fixes to candidate plan]
+    E --> F[Agent CHECK: re-run conflict + budget guardrails]
+    F -- Pass --> H
+    F -- Fail, attempts remain --> D
+    F -- Max attempts exceeded --> G[AgentError: fall back to original plan + warning]
+    H --> I[Human: pet owner reviews schedule in UI/CLI]
