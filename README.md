@@ -1,6 +1,29 @@
-# PawPal+ (Module 2 Project)
+# PawPal+ (Applied AI System Final Project)
 
-You are building **PawPal+**, a Streamlit app that helps a pet owner plan care tasks for their pet.
+## Base Project
+
+This project extends **PawPal+** (Module 2), an object-oriented pet-care scheduler built with Python dataclasses. The original system let an owner register pets, add care tasks (feeding, walks, meds, grooming), and generate a daily schedule using a greedy priority-based algorithm — with sorting, filtering, recurring-task logic, and conflict detection, but no AI/LLM component of any kind.
+
+## New AI Feature: Rescheduling Agent
+
+This final project adds a genuine AI capability on top of that deterministic system: a **`ReschedulingAgent`** (`ai_agent.py`) that runs a plan → act → check loop using an LLM (Groq, `llama-3.3-70b-versatile`) whenever the scheduler detects a same-pet conflict or a skipped task.
+
+1. **Plan** — the agent sends the current schedule, conflicts, and skipped tasks to the LLM and asks for a JSON array of time fixes.
+2. **Act** — it applies those fixes to a candidate copy of the plan.
+3. **Check** — it re-runs the scheduler's own conflict and budget rules as a guardrail. If the fix is invalid, the failure is fed back to the LLM and it retries (up to 3 attempts) before falling back to the original plan with a warning.
+
+The agent is wired into both `main.py` (CLI) and `app.py` (Streamlit — see the "🤖 Ask AI to resolve conflicts" button that appears next to any conflict warning). See `diagrams/architecture.mmd` for the full data-flow diagram, and `diagrams/uml_final.mmd` for the class structure.
+
+## Architecture Overview
+
+`diagrams/architecture.mmd` shows the data flow: owner/pet/task data feeds into `Scheduler.build_plan()`, which checks for conflicts or skipped tasks. If none are found, the plan goes straight to the user. If issues exist, the `ReschedulingAgent` takes over — it asks the LLM to propose fixes (plan), applies them to a candidate schedule (act), and re-checks that candidate against the scheduler's own conflict/budget rules (check). A valid fix is accepted and shown to the user; an invalid one triggers a retry (up to 3 attempts) with the failure reason fed back to the LLM; if all retries fail, the system falls back to the original plan with a warning rather than showing a broken schedule. `diagrams/uml_final.mmd` shows the underlying class structure — `Owner` owns `Pet`s, each `Pet` owns `Task`s, and `Scheduler` is injected with both to read, sort, and schedule tasks; `ReschedulingAgent` sits alongside `Scheduler`, reading and mutating its `plan` without needing changes to the original classes.
+
+## Design Decisions
+
+- **The agent only touches same-pet conflicts, not cross-pet ones.** Cross-pet conflicts (e.g., Jordan can't walk one pet while bathing another) are still detected and shown, but resolving them would require coordinating multiple schedulers at once, which was out of scope for this iteration. This is a deliberate trade-off to keep the agent's responsibility narrow and its guardrail logic easy to verify.
+- **The agent never edits the live plan directly.** `_apply_fixes()` works on a deep copy, and only `resolve()` commits the result back to `self.scheduler.plan`, and only after `_validate()` passes. This means a failed or malicious-looking LLM response can never corrupt the real schedule mid-attempt.
+- **Bounded retries (3) instead of unlimited.** An LLM that keeps failing validation could loop forever; capping attempts and falling back to the original (safe, if imperfect) plan was chosen over either infinite retries or immediately giving up on attempt 1.
+- **Groq over a paid API.** The project needed a real LLM call for the "substantial AI feature" requirement without a $-cost dependency for grading; Groq's free tier meets that while still requiring genuine prompt engineering and JSON-reliability handling (see the code-fence-stripping logic in `_extract_json()`, added after testing showed Llama models sometimes wrap JSON in markdown fences despite instructions not to).
 
 ## Scenario
 
@@ -9,18 +32,17 @@ A busy pet owner needs help staying consistent with pet care. They want an assis
 - Track pet care tasks (walks, feeding, meds, enrichment, grooming, etc.)
 - Consider constraints (time available, priority, owner preferences)
 - Produce a daily plan and explain why it chose that plan
+- Automatically resolve scheduling conflicts using AI, with a safety check before any fix is applied
 
-Your job is to design the system first (UML), then implement the logic in Python, then connect it to the Streamlit UI.
+## What this system does
 
-## What you will build
-
-Your final app should:
-
-- Let a user enter basic owner + pet info
-- Let a user add/edit tasks (duration + priority at minimum)
-- Generate a daily schedule/plan based on constraints and priorities
-- Display the plan clearly (and ideally explain the reasoning)
-- Include tests for the most important scheduling behaviors
+- Lets a user enter basic owner + pet info
+- Lets a user add/edit tasks (duration + priority at minimum)
+- Generates a daily schedule/plan based on constraints and priorities
+- Displays the plan clearly and explains the reasoning
+- Detects same-pet and cross-pet scheduling conflicts
+- Runs an AI agent that proposes, applies, and validates fixes for same-pet conflicts
+- Includes automated tests and an evaluation harness for both the scheduler and the agent
 
 ## Getting started
 
@@ -29,8 +51,19 @@ Your final app should:
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-pip install tabulate        # CLI table formatting
+pip install tabulate groq python-dotenv
 ```
+
+### AI Agent Setup
+
+The rescheduling agent needs a free Groq API key:
+
+1. Get one at [console.groq.com](https://console.groq.com) → API Keys → Create API Key (no billing info required)
+2. Create a `.env` file in the project root containing:
+   ```
+   GROQ_API_KEY=gsk_your_actual_key_here
+   ```
+3. `.env` is already listed in `.gitignore` — it is never committed. If the key is missing, `ai_agent.py` will raise an authentication error when it tries to contact Groq; the rest of the app (scheduling, sorting, conflict detection) still works without it.
 
 ### Run the app
 ```bash
@@ -42,13 +75,20 @@ streamlit run app.py
 python main.py
 ```
 
+### Run the test suites
+```bash
+python -m pytest -v              # scheduler tests
+python -m pytest tests/test_agent.py -v   # AI agent tests
+python evaluate_agent.py         # AI agent evaluation harness
+```
+
 ## 🖥️ Sample Output
 
 ```
 ════════════════════════════════════════════════════════════
                🐾  PawPal+ — Today's Schedule
 ════════════════════════════════════════════════════════════
-  📅  Wednesday, June 24 2026
+  📅  Monday, August 03 2026
 
   Owner:  Jordan
   Budget: 120 min  │  Start: 08:00
@@ -59,7 +99,7 @@ python main.py
 ╭─────────────┬──────────────────┬────────────┬────────────┬──────────────╮
 │ Time        │ Task             │   Duration │ Priority   │ Recurrence   │
 ├─────────────┼──────────────────┼────────────┼────────────┼──────────────┤
-│ 08:00–08:05 │ 💊 Medication     │      5 min │ ● HIGH     │ 📅 daily      │
+│ 08:05–08:10 │ 💊 Medication     │      5 min │ ● HIGH     │ 📅 daily      │
 │ 08:05–08:15 │ 🍽 Feeding        │     10 min │ ● HIGH     │ 📅 daily      │
 │ 08:15–08:45 │ 🚶 Morning walk   │     30 min │ ● HIGH     │ 📅 daily      │
 │ 08:45–08:55 │ 🛁 Teeth brushing │     10 min │ ● MED      │ 📅 daily      │
@@ -68,6 +108,16 @@ python main.py
 ╰─────────────┴──────────────────┴────────────┴────────────┴──────────────╯
 
   Time used: [███████████████████████████░░░] 110/120 min
+
+🤖 AI Rescheduling Agent — Biscuit
+────────────────────────────────────────────────────────────
+  ✅ Agent resolved conflicts. Updated plan:
+    08:00 — Medication
+    08:05 — Feeding
+    08:15 — Morning walk
+    08:45 — Teeth brushing
+    08:55 — Enrichment toy
+    09:10 — Bath
 
   Progress: 0/6 tasks complete (0%)
   Still to do:
@@ -105,6 +155,10 @@ python main.py
   ⚠️  CROSS-PET CONFLICT: Biscuit·'Medication' (08:00–08:05) overlaps Mochi·'Litter box' (08:00–08:05)
   ⚠️  CROSS-PET CONFLICT: Biscuit·'Feeding' (08:05–08:15) overlaps Mochi·'Feeding' (08:05–08:15)
   ⚠️  CROSS-PET CONFLICT: Biscuit·'Morning walk' (08:15–08:45) overlaps Mochi·'Brush coat' (08:15–08:25)
+  ⚠️  CROSS-PET CONFLICT: Biscuit·'Morning walk' (08:15–08:45) overlaps Mochi·'Playtime' (08:25–08:40)
+  ⚠️  CROSS-PET CONFLICT: Biscuit·'Morning walk' (08:15–08:45) overlaps Mochi·'Vet check-up' (08:40–09:10)
+  ⚠️  CROSS-PET CONFLICT: Biscuit·'Teeth brushing' (08:45–08:55) overlaps Mochi·'Vet check-up' (08:40–09:10)
+  ⚠️  CROSS-PET CONFLICT: Biscuit·'Enrichment toy' (08:55–09:10) overlaps Mochi·'Vet check-up' (08:40–09:10)
 
 💡 Why was this plan chosen?
 ────────────────────────────────────────────────────────────
@@ -130,6 +184,8 @@ Plan explanation for Mochi (Jordan, 120 min available):
 ════════════════════════════════════════════════════════════
 ```
 
+*Note: Biscuit's `Medication`/`Feeding` conflict above was forced on purpose in `main.py` so the AI agent's behavior is visible end-to-end in this demo run. The cross-pet conflicts below are detected but intentionally left unresolved — the agent is scoped to one pet's own schedule; see Limitations in `model_card.md`.*
+
 ## 📐 Smarter Scheduling
 
 | Feature | Method(s) | Notes |
@@ -142,6 +198,7 @@ Plan explanation for Mochi (Jordan, 120 min available):
 | **Plan explanation** | `explain_plan()` | Returns a plain-English reason for every scheduled and skipped task. Displayed as a collapsible expander in the UI. |
 | **Progress tracking** | `progress_report()`, `filter_by_status()` | Tracks done vs remaining tasks per pet. Feeds `st.metric` tiles and the `st.progress` budget bar in the Streamlit UI. |
 | **Input validation** | `Task.__post_init__()` | Rejects invalid priority/recurrence values and non-positive durations at object creation time, before any scheduling runs. |
+| **AI rescheduling agent** | `ReschedulingAgent.resolve()` (`ai_agent.py`) | Runs a plan → act → check loop: an LLM (Groq) proposes time fixes for same-pet conflicts, fixes are applied to a candidate plan, then re-validated against the scheduler's own conflict/budget rules before being accepted. Retries up to 3 times, then falls back safely with a warning. |
 
 ## 📸 Demo Walkthrough
 
@@ -165,7 +222,7 @@ Click **🗓️ Build Today's Schedule**. The scheduler runs `build_plan()` for 
 - A skipped-tasks expander listing anything that didn't fit
 - Two `st.metric` tiles — "Tasks to do" and "Completed" — from `filter_by_status()`
 - A **"Why was this plan chosen?"** expander with `explain_plan()` output
-- If two tasks overlap, a `st.warning` banner appears above the table with a **"Show conflicts"** expander for details
+- If two tasks overlap, a `st.warning` banner appears above the table with a **"Show conflicts"** expander for details, plus a **🤖 Ask AI to resolve conflicts** button that triggers `ReschedulingAgent.resolve()` live and shows a **🧠 Agent reasoning trace** expander with the actual prompt/response/validation steps
 - If two pets' plans overlap (Jordan can't do two things at once), a cross-pet warning banner appears at the top of the section
 
 ### Example workflow
@@ -181,7 +238,8 @@ Click **🗓️ Build Today's Schedule**. The scheduler runs `build_plan()` for 
      Bath           40 min  low     weekly
 4. Click: Build Today's Schedule
 5. View sorted table, time budget bar, and explanation panel
-6. Expand "Why was this plan chosen?" to read per-task reasoning
+6. If a conflict is detected, click "🤖 Ask AI to resolve conflicts" and review the reasoning trace
+7. Expand "Why was this plan chosen?" to read per-task reasoning
 ```
 
 ### Key scheduler behaviors shown in the UI
@@ -192,96 +250,44 @@ Click **🗓️ Build Today's Schedule**. The scheduler runs `build_plan()` for 
 | Chronological sort | Table rows are in `HH:MM` order via `sort_by_time()` |
 | Time budget | Progress bar fills proportionally; skipped tasks listed separately |
 | Conflict warning | `st.warning` banner + expandable detail if tasks overlap |
+| AI conflict resolution | "🤖 Ask AI to resolve conflicts" button + live reasoning trace expander |
 | Plan reasoning | Collapsible `explain_plan()` panel per pet |
 | Progress tracking | "Tasks to do" / "Completed" metric tiles |
 
+### Live AI agent run (captured from the Streamlit UI)
+
+```
+⚠️ 1 conflict(s) detected for Biscuit. Two or more tasks overlap. Review and adjust times.
+
+Show Biscuit's conflicts
+  ⚠️ CONFLICT on Biscuit: 'Morning walk' (08:30–09:00) overlaps 'eat' (08:30–09:00)
+
+✅ AI agent resolved the conflict(s) for Biscuit.
+
+🧠 Agent reasoning trace
+{
+  "attempt": 1,
+  "prompt": "You are a scheduling assistant for a pet-care app.\n\nOwner budget: 120 minutes, starting 08:00.\n\nCurrent plan for Biscuit:\n- Morning walk @ 08:30 (30min, high)\n- eat @ 08:30 (30min, high)\n- walk @ 09:00 (40min, high)\n\nSkipped tasks (didn't fit):\nNone\n\nDetected issues:\n⚠️  CONFLICT on Biscuit: 'Morning walk' (08:30–09:00) overlaps 'eat' (08:30–09:00)\n\nRespond with ONLY a JSON array, no prose, no markdown fences. Each item:\n{\"title\": \"<task title>\", \"new_time\": \"HH:MM\"}\nKeep every task within the owner's budget window. This is attempt 1/3.",
+  "response": "[{\"title\": \"Morning walk\", \"new_time\": \"08:00\"}, {\"title\": \"eat\", \"new_time\": \"08:30\"}, {\"title\": \"walk\", \"new_time\": \"09:00\"}]"
+}
+{
+  "attempt": 1,
+  "result": "accepted"
+}
+```
+
+Resulting table after the fix:
+
+```
+08:00  Morning walk   30 min  🔴 high  daily
+08:30  eat            30 min  🔴 high  daily
+09:00  walk           40 min  🔴 high  daily
+⏱ Time used: 100 / 120 min
+```
+
 ### CLI output (`python main.py`)
 
-```
-════════════════════════════════════════════════════════════
-               🐾  PawPal+ — Today's Schedule
-════════════════════════════════════════════════════════════
-  📅  Wednesday, June 24 2026
-
-  Owner:  Jordan
-  Budget: 120 min  │  Start: 08:00
-════════════════════════════════════════════════════════════
-
-🐕 Biscuit (Golden Retriever)
-────────────────────────────────────────────────────────────
-╭─────────────┬──────────────────┬────────────┬────────────┬──────────────╮
-│ Time        │ Task             │   Duration │ Priority   │ Recurrence   │
-├─────────────┼──────────────────┼────────────┼────────────┼──────────────┤
-│ 08:00–08:05 │ 💊 Medication     │      5 min │ ● HIGH     │ 📅 daily      │
-│ 08:05–08:15 │ 🍽 Feeding        │     10 min │ ● HIGH     │ 📅 daily      │
-│ 08:15–08:45 │ 🚶 Morning walk   │     30 min │ ● HIGH     │ 📅 daily      │
-│ 08:45–08:55 │ 🛁 Teeth brushing │     10 min │ ● MED      │ 📅 daily      │
-│ 08:55–09:10 │ 🎾 Enrichment toy │     15 min │ ● MED      │ 📅 daily      │
-│ 09:10–09:50 │ 🛁 Bath           │     40 min │ ● LOW      │ 📆 weekly     │
-╰─────────────┴──────────────────┴────────────┴────────────┴──────────────╯
-
-  Time used: [███████████████████████████░░░] 110/120 min
-
-  Progress: 0/6 tasks complete (0%)
-  Still to do:
-    ○  💊 Medication  @ 08:00
-    ○  🍽 Feeding  @ 08:05
-    ○  🚶 Morning walk  @ 08:15
-    ○  🛁 Teeth brushing  @ 08:45
-    ○  🎾 Enrichment toy  @ 08:55
-    ○  🛁 Bath  @ 09:10
-
-🐈 Mochi (Siamese)
-────────────────────────────────────────────────────────────
-╭─────────────┬────────────────┬────────────┬────────────┬──────────────╮
-│ Time        │ Task           │   Duration │ Priority   │ Recurrence   │
-├─────────────┼────────────────┼────────────┼────────────┼──────────────┤
-│ 08:00–08:05 │ 🧹 Litter box   │      5 min │ ● HIGH     │ 📅 daily      │
-│ 08:05–08:15 │ 🍽 Feeding      │     10 min │ ● HIGH     │ 📅 daily      │
-│ 08:15–08:25 │ 🛁 Brush coat   │     10 min │ ● MED      │ 📆 weekly     │
-│ 08:25–08:40 │ 🎾 Playtime     │     15 min │ ● MED      │ 📅 daily      │
-│ 08:40–09:10 │ 🏥 Vet check-up │     30 min │ ● LOW      │ 🔔 as needed  │
-╰─────────────┴────────────────┴────────────┴────────────┴──────────────╯
-
-  Time used: [█████████████████░░░░░░░░░░░░░] 70/120 min
-
-  Progress: 0/5 tasks complete (0%)
-  Still to do:
-    ○  🧹 Litter box  @ 08:00
-    ○  🍽 Feeding  @ 08:05
-    ○  🛁 Brush coat  @ 08:15
-    ○  🎾 Playtime  @ 08:25
-    ○  🏥 Vet check-up  @ 08:40
-
-⚠️  Conflict Check
-────────────────────────────────────────────────────────────
-  ⚠️  CROSS-PET CONFLICT: Biscuit·'Medication' (08:00–08:05) overlaps Mochi·'Litter box' (08:00–08:05)
-  ⚠️  CROSS-PET CONFLICT: Biscuit·'Feeding' (08:05–08:15) overlaps Mochi·'Feeding' (08:05–08:15)
-  ⚠️  CROSS-PET CONFLICT: Biscuit·'Morning walk' (08:15–08:45) overlaps Mochi·'Brush coat' (08:15–08:25)
-
-💡 Why was this plan chosen?
-────────────────────────────────────────────────────────────
-Plan explanation for Biscuit (Jordan, 120 min available):
-
-  ✓ Medication: scheduled first — highest priority
-  ✓ Feeding: scheduled first — highest priority
-  ✓ Morning walk: scheduled first — highest priority
-  ✓ Teeth brushing: included — fits within remaining time (priority: medium)
-  ✓ Enrichment toy: included — fits within remaining time (priority: medium)
-  ✓ Bath: included — fits within remaining time (priority: low)
-
-Plan explanation for Mochi (Jordan, 120 min available):
-
-  ✓ Litter box: scheduled first — highest priority
-  ✓ Feeding: scheduled first — highest priority
-  ✓ Brush coat: included — fits within remaining time (priority: medium)
-  ✓ Playtime: included — fits within remaining time (priority: medium)
-  ✓ Vet check-up: included — fits within remaining time (priority: low)
-
-════════════════════════════════════════════════════════════
-  All schedules generated.  11 tasks · 180 min planned  🐶🐱
-════════════════════════════════════════════════════════════
-```
+See the full "🖥️ Sample Output" section above — it now includes the "🤖 AI Rescheduling Agent — Biscuit" block showing the same plan → act → check cycle running end-to-end from the terminal.
 
 ## 🎨 Formatting Features
 
@@ -294,7 +300,7 @@ Plan explanation for Mochi (Jordan, 120 min available):
 | **Task-type emoji icons** | `task_icon()` keyword matcher in `main.py` | 🚶 walks, 🍽 feeding, 💊 medication, 🛁 grooming, 🎾 enrichment, 🏥 vet, 🧹 litter |
 | **Recurrence badges** | `recurrence_badge()` in `main.py` | 📅 daily, 📆 weekly, 🔔 as needed |
 | **ASCII progress bar** | Inline string — `█` filled, `░` empty, coloured by % used | `[███████████░░░░░]  110/120 min` — yellow if >85%, red if over budget |
-| **Section headers** | `print_section()` with ANSI bold + cyan + dim divider | Cyan bold labels between each output block |
+| **Section headers** | `print_section()` with ANSI bold + cyan + dim divider | Cyan bold labels between each output block, including the AI agent section |
 | **Conflict warnings** | Red ANSI on `⚠️ CONFLICT` lines | Conflict lines printed in red; clean result printed in green |
 
 ### Streamlit UI (`app.py`)
@@ -304,6 +310,7 @@ Plan explanation for Mochi (Jordan, 120 min available):
 | **Priority colour dots** | `PRIORITY_EMOJI` dict — 🔴 🟡 🟢 | Priority column in every schedule table |
 | **Time budget bar** | `st.progress(pct, text=...)` | Fills proportionally; label shows `used / total min` |
 | **Conflict banners** | `st.warning(...)` + `st.expander(...)` | Yellow banner above the table; expandable detail list |
+| **AI agent button + trace** | `st.button(...)`, `st.spinner(...)`, `st.json(...)` | "🤖 Ask AI to resolve conflicts" button next to conflict warnings; reasoning trace shown as a collapsible JSON expander |
 | **Progress tiles** | `st.metric("Tasks to do", n)` | Two side-by-side metric cards below each schedule |
 | **Skipped tasks** | `st.expander("⏭ Skipped tasks...")` | Collapsible block listing tasks that didn't fit |
 | **Reasoning panel** | `st.expander("💡 Why was this plan chosen?")` | Collapsible `explain_plan()` output per pet |
@@ -311,16 +318,16 @@ Plan explanation for Mochi (Jordan, 120 min available):
 ### Libraries used
 
 ```bash
-pip install tabulate   # CLI table formatting
+pip install tabulate groq python-dotenv
 # streamlit            # already in requirements.txt
 ```
 
-`tabulate` is a lightweight library with no dependencies. Pass a list of rows, a headers list, and a `tablefmt` string — `"rounded_outline"` gives the box-drawn borders. ANSI colours are built into Python's string literals and need no extra library.
+`tabulate` is a lightweight library with no dependencies used for CLI table formatting. `groq` is the client SDK for the Groq LLM API used by the rescheduling agent. `python-dotenv` loads the `GROQ_API_KEY` from a local `.env` file so the key is never hardcoded or committed. ANSI colours are built into Python's string literals and need no extra library.
 
 ## 🧪 Testing PawPal+
 
 ```bash
-# Run the full test suite
+# Run the full scheduler test suite
 python -m pytest
 
 # Run with verbose output (shows each test name)
@@ -330,7 +337,7 @@ python -m pytest -v
 python -m pytest --cov
 ```
 
-### What the tests cover
+### What the scheduler tests cover
 
 The suite has 11 tests split into happy paths and edge cases:
 
@@ -355,7 +362,7 @@ The suite has 11 tests split into happy paths and edge cases:
 - `test_build_plan_with_no_tasks_returns_empty` — a pet with no tasks returns `[]` without crashing
 - `test_task_exceeding_budget_is_skipped` — a 90-min task with a 60-min budget lands in `_skipped`; smaller tasks still schedule
 
-### Test run output
+### Scheduler test run output
 
 ```
 ====================================================================== test session starts =======================================================================
@@ -369,8 +376,58 @@ tests\test_pawpal.py ...........                                                
 ======================================================================= 11 passed in 0.27s =======================================================================
 ```
 
+## 🛡️ Agent Reliability & Evaluation
+
+The `ReschedulingAgent` includes a built-in guardrail: every LLM-proposed fix is re-validated against the scheduler's own conflict-detection and budget rules before being accepted. Invalid fixes are rejected and retried (up to 3 attempts) rather than applied blindly.
+
+### Automated agent tests (`tests/test_agent.py`)
+
+Six tests mock the LLM call so results are deterministic, free, and don't depend on Groq being reachable during grading:
+
+```
+python -m pytest tests/test_agent.py -v
+
+tests/test_agent.py::test_agent_accepts_valid_llm_fix PASSED                        [ 16%]
+tests/test_agent.py::test_agent_skips_work_when_no_conflicts PASSED                 [ 33%]
+tests/test_agent.py::test_agent_raises_after_malformed_json_every_attempt PASSED    [ 50%]
+tests/test_agent.py::test_agent_strips_markdown_code_fences PASSED                  [ 66%]
+tests/test_agent.py::test_agent_rejects_fix_that_still_conflicts PASSED             [ 83%]
+tests/test_agent.py::test_agent_rejects_fix_exceeding_budget PASSED                  [100%]
+
+6 passed in 0.32s
+```
+
+### Evaluation harness (`evaluate_agent.py`)
+
+A test harness runs the agent against 5 predefined scenarios and prints a pass/fail summary:
+
+```
+python evaluate_agent.py
+
+Scenario                                      Resolved   Expected   Attempts   Result
+------------------------------------------------------------------------------------------
+Valid fix resolves conflict                   True       True       2          PASS
+Malformed JSON is rejected gracefully         False      False      6          PASS
+Markdown-fenced JSON is still parsed          True       True       2          PASS
+No-op fix (still conflicting) is rejected     False      False      6          PASS
+Fix that exceeds budget is rejected           False      False      6          PASS
+------------------------------------------------------------------------------------------
+
+5/5 scenarios behaved as expected.
+```
+
+### Guardrail behavior summary
+
+| Test Input | Evaluation Criteria | Result |
+|---|---|---|
+| Two tasks forced to the same time slot | LLM proposes a valid fix | Agent resolves in 1 attempt, no conflicts remain — Pass |
+| LLM returns non-JSON prose | Agent doesn't crash | `AgentError` raised after 3 retries, original plan kept — Pass |
+| LLM wraps JSON in code fences | Agent still parses correctly | Fix applied successfully — Pass |
+| LLM proposes a fix that doesn't actually resolve the conflict | Guardrail rejects it | Retried and eventually falls back safely — Pass |
+| LLM proposes a fix that exceeds the owner's time budget | Guardrail rejects it | Retried and eventually falls back safely — Pass |
+
 ### Confidence Level
 
 ⭐⭐⭐⭐⭐ 5 / 5
 
-All 11 automated tests pass, covering sorting, recurrence, conflict detection, empty plans, and budget overflow. Every core scheduling behavior has at least one happy-path test and one edge-case test.
+All 11 scheduler tests, all 6 agent tests, and all 5 evaluation scenarios pass. The guardrail correctly distinguishes valid fixes from invalid ones in every tested case, and the agent never applies an unvalidated change to the live schedule. See `model_card.md` for known limitations (e.g., the agent does not currently resolve cross-pet conflicts).
