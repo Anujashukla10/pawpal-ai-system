@@ -49,7 +49,7 @@ The scheduler uses a greedy approach, meaning it schedules higher-priority tasks
 **a. How you used AI**
 
 - How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-I used AI to help brainstorm the UML design, generate class skeletons, implement methods, debug errors, and create test cases. It also helped explain parts of the code that I did not fully understand after asking follow up questions.
+I used AI to help brainstorm the UML design, implement methods, debug errors, and create test cases that I might have missed. It also helped explain parts of the code that I did not fully understand after asking follow up questions.
 
 - What kinds of prompts or questions were most helpful?
 The most helpful prompts were specific questions about my code, such as how to implement sorting, recurring tasks, and conflict detection. Asking AI to explain why a solution worked was also useful.
@@ -57,10 +57,10 @@ The most helpful prompts were specific questions about my code, such as how to i
 **b. Judgment and verification**
 
 - Describe one moment where you did not accept an AI suggestion as-is.
-AI suggested rewriting part of the scheduling logic using a more compact approach, but I decided to keep the original loop because it was easier to read and understand.
+AI suggested rewriting part of the scheduling logic using a more compact approach, but I decided to keep the original loop because it was easier to read and understand. It also kept on giving me the diagram image instead of Mermaid source file code block.
 
 - How did you evaluate or verify what the AI suggested?
-I tested the suggestions by running the program and checking the output. I only kept changes that worked correctly and made the code easier to maintain.
+I tested the suggestions by running the program and checking the output. I only kept changes that worked correctly and made the code easier to maintain. If I couldn't tell what it was coding then I kept on asking it follow up questions like explain me what you did, and add detailed comments.
 
 ---
 
@@ -77,7 +77,7 @@ These tests verify that the main scheduling features work correctly and help cat
 **b. Confidence**
 
 - How confident are you that your scheduler works correctly?
-All tests passed successfully, and the scheduler behaved as expected during manual testing.
+I am pretty confident as All the tests have passed successfully, and the scheduler behaved as expected during manual testing.
 
 - What edge cases would you test next if you had more time?
 I would test a budget of 0 minutes, multiple pets with similar task names, and tasks that extend past midnight.

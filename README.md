@@ -16,7 +16,15 @@ The agent is wired into both `main.py` (CLI) and `app.py` (Streamlit — see the
 
 ## Architecture Overview
 
-`diagrams/architecture.mmd` shows the data flow: owner/pet/task data feeds into `Scheduler.build_plan()`, which checks for conflicts or skipped tasks. If none are found, the plan goes straight to the user. If issues exist, the `ReschedulingAgent` takes over — it asks the LLM to propose fixes (plan), applies them to a candidate schedule (act), and re-checks that candidate against the scheduler's own conflict/budget rules (check). A valid fix is accepted and shown to the user; an invalid one triggers a retry (up to 3 attempts) with the failure reason fed back to the LLM; if all retries fail, the system falls back to the original plan with a warning rather than showing a broken schedule. `diagrams/uml_final.mmd` shows the underlying class structure — `Owner` owns `Pet`s, each `Pet` owns `Task`s, and `Scheduler` is injected with both to read, sort, and schedule tasks; `ReschedulingAgent` sits alongside `Scheduler`, reading and mutating its `plan` without needing changes to the original classes.
+`diagrams/architecture.mmd` shows how the system works. The owner, pet, and task information is sent to `Scheduler.build_plan()`. The scheduler creates a schedule and checks if there are any conflicts or skipped tasks.
+
+If there are no problems, the schedule is shown to the user. If there is a problem, the `ReschedulingAgent` tries to fix it. First, it asks the LLM to suggest a new schedule. Then, it applies the changes and checks the new schedule using the scheduler's rules.
+
+If the new schedule is valid, it is accepted and shown to the user. If it is not valid, the system tries again, up to 3 times. The reason why the schedule failed is sent back to the LLM to help it make a better suggestion.
+
+If all 3 attempts fail, the system uses the original schedule and shows a warning to the user instead of showing an incorrect schedule.
+
+`diagrams/uml_final.mmd` shows the main classes in the system. An `Owner` can have multiple `Pet`s, and each `Pet` can have multiple `Task`s. The `Scheduler` uses the owner and pet information to read, sort, and schedule tasks. The `ReschedulingAgent` works with the `Scheduler` and can read and change its schedule without changing the original `Owner`, `Pet`, or `Task` classes.
 
 ## Design Decisions
 
@@ -430,4 +438,4 @@ Fix that exceeds budget is rejected           False      False      6          P
 
 ⭐⭐⭐⭐⭐ 5 / 5
 
-All 11 scheduler tests, all 6 agent tests, and all 5 evaluation scenarios pass. The guardrail correctly distinguishes valid fixes from invalid ones in every tested case, and the agent never applies an unvalidated change to the live schedule. See `model_card.md` for known limitations (e.g., the agent does not currently resolve cross-pet conflicts).
+All 11 scheduler tests, all 6 agent tests, and all 5 evaluation scenarios pass. The guardrail correctly distinguishes valid fixes from invalid ones in every tested case, and the agent never applies an unvalidated change to the live schedule..
