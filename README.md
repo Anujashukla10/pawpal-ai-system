@@ -439,3 +439,12 @@ Fix that exceeds budget is rejected           False      False      6          P
 ⭐⭐⭐⭐⭐ 5 / 5
 
 All 11 scheduler tests, all 6 agent tests, and all 5 evaluation scenarios pass. The guardrail correctly distinguishes valid fixes from invalid ones in every tested case, and the agent never applies an unvalidated change to the live schedule..
+
+
+ ## Portfolio Artifact
+ 
+ **GitHub repository:** 
+ `https://github.com/Anujashukla10/pawpal-ai-system`
+ 
+ **What this project says about me as an AI engineer:**  
+ This project shows that I don't just accept AI output, I verify it. When my own test assumed the agent's trace would have one entry per attempt and the real code produced two, I trusted the running code over my own written expectation and fixed the test rather than the implementation. That instinct shaped the whole system: instead of letting an LLM's claim that it "fixed" a scheduling conflict stand on its own, I built a guardrail that independently re-checks every proposed fix against logic I already knew was correct, with bounded retries and a safe fallback rather than an infinite loop or a silent failure. To me, that combination, treating AI output as a hypothesis to test rather than an answer to trust, and building the system so a wrong hypothesis fails safely is what an AI engineer's job actually is.
