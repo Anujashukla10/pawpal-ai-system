@@ -1,0 +1,29 @@
+[
+  {
+    "attempt": 1,
+    "prompt": "You are a scheduling assistant for a pet-care app.\n\nOwner budget: 60 minutes, starting 08:00.\n\nCurrent plan for Biscuit:\n- Walk @ 08:00 (30min, high)\n- Feed @ 08:00 (10min, high)\n\nSkipped tasks (didn't fit):\nNone\n\nDetected issues:\n⚠️  CONFLICT on Biscuit: 'Walk' (08:00–08:30) overlaps 'Feed' (08:00–08:10)\n\nRespond with ONLY a JSON array, no prose, no markdown fences. Each item:\n{\"title\": \"<task title>\", \"new_time\": \"HH:MM\"}\nKeep every task within the owner's budget window. This is attempt 1/3.",
+    "response": "Sure, here's a plan: not json"
+  },
+  {
+    "attempt": 1,
+    "error": "Response was not valid JSON."
+  },
+  {
+    "attempt": 2,
+    "prompt": "... (same context, with: Previous attempt failed validation: Response was not valid JSON. ... This is attempt 2/3.)",
+    "response": "Sure, here's a plan: not json"
+  },
+  {
+    "attempt": 2,
+    "error": "Response was not valid JSON."
+  },
+  {
+    "attempt": 3,
+    "prompt": "... (same context, with: Previous attempt failed validation: Response was not valid JSON. ... This is attempt 3/3.)",
+    "response": "Sure, here's a plan: not json"
+  },
+  {
+    "attempt": 3,
+    "error": "Response was not valid JSON."
+  }
+]
